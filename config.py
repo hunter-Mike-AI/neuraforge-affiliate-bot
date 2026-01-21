@@ -1,9 +1,10 @@
-production v1"
-git push origin mainimport os
+import os
 
+# El orden de estas líneas no afecta el funcionamiento
 TELEGRAM_TOKEN = os.environ.get("TELEGRAM_TOKEN")
 ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")
 COOLDOWN_SECONDS = 60 
+
 [main 7259d3d] fix: remove psycopg2, use sqlite for production v1
  2 files changed, 27 insertions(+), 13 deletions(-)
 Username for 'https://github.com': hunter-Mike-AI
