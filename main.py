@@ -38,4 +38,3 @@ def hotmart(msg):
     bot.reply_to(msg, f"🔗 Tu enlace Hotmart:\n{link}")
 
 bot.polling(none_stop=True)	
-
