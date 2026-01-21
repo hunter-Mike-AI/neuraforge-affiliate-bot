@@ -3,12 +3,11 @@ import telebot
 import google.generativeai as genai
 from flask import Flask, request, jsonify
 from datetime import datetime
-from config import TELEGRAM_TOKEN, ADMIN_CHAT_ID, GEMINI_API_KEY
 
-# CONFIGURACIÓN DE IA Y BOT
-genai.configure(api_key=GEMINI_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-app = Flask(__name__)
+# LEER VARIABLES DIRECTO DE RENDER
+TELEGRAM_TOKEN = os.environ.get('TELEGRAM_TOKEN')
+ADMIN_CHAT_ID = os.environ.get('ADMIN_CHAT_ID')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY')
 
 # DICCIONARIO DE PRODUCTOS (Tu nueva base de datos comercial)
 PRODUCTOS = {
