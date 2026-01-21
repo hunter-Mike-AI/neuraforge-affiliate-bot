@@ -1,91 +1,66 @@
 import os
-import threading
-import time
-import schedule
-from telebot import TeleBot
+import telebot
+import google.generativeai as genai
 from flask import Flask, request, jsonify
-from config import TELEGRAM_TOKEN, COOLDOWN_SECONDS, ADMIN_CHAT_ID
-from database import init_db, get_connection
-from security import can_proceed
-from affiliates.hotmart import generate_link
+from datetime import datetime
+from config import TELEGRAM_TOKEN, ADMIN_CHAT_ID, GEMINI_API_KEY
 
-# Inicialización
-bot = TeleBot(TELEGRAM_TOKEN)
+# CONFIGURACIÓN DE IA Y BOT
+genai.configure(api_key=GEMINI_API_KEY)
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
-init_db()
 
-# --- LÓGICA DEL BOT DE TELEGRAM ---
+# DICCIONARIO DE PRODUCTOS (Tu nueva base de datos comercial)
+PRODUCTOS = {
+    "resina": {
+        "nombre": "Accesorios en Resina",
+        "link": "https://go.hotmart.com/X104000770T",
+        "ventas_actuales": 0,
+        "fecha_inicio": datetime.now()
+    },
+    "velas": {
+        "nombre": "Velas Artesanales",
+        "link": "https://go.hotmart.com/F104000855I",
+        "ventas_actuales": 0,
+        "fecha_inicio": datetime.now()
+    },
+    "sublimacion": {
+        "nombre": "Negocio de la Sublimación",
+        "link": "https://go.hotmart.com/F104000799H",
+        "ventas_actuales": 0,
+        "fecha_inicio": datetime.now()
+    },
+    "cinvest": {
+        "nombre": "CinvestClub",
+        "link": "https://go.hotmart.com/Y104000802F",
+        "ventas_actuales": 0,
+        "fecha_inicio": datetime.now()
+    },
+    "aparatologia": {
+        "nombre": "Fórmula Brasileña con Aparatología",
+        "link": "https://go.hotmart.com/N104000786E",
+        "ventas_actuales": 0,
+        "fecha_inicio": datetime.now()
+    }
+}
 
-@bot.message_handler(commands=['start'])
-def start(msg):
-    bot.reply_to(
-        msg,
-        "🐝 Bienvenido a NeuraForgeAI\n\n"
-        "/hotmart - Generar enlace manual\n"
-        "/status - Verificar sistema"
-    )
-
-@bot.message_handler(commands=['hotmart'])
-def hotmart(msg):
-    user_id = msg.from_user.id
-    if not can_proceed(user_id, COOLDOWN_SECONDS):
-        bot.reply_to(msg, "⏳ Espera un momento antes de generar otro enlace.")
-        return
-
-    link = generate_link(user_id)
-    conn = get_connection()
-    cur = conn.cursor()
-    cur.execute(
-        "INSERT INTO links (telegram_id, platform, url) VALUES (%s, %s, %s)",
-        (user_id, "hotmart", link)
-    )
-    conn.commit()
-    conn.close()
-    bot.reply_to(msg, f"🔗 Tu enlace Hotmart:\n{link}")
-
-# --- LÓGICA DE BÚSQUEDA AUTOMÁTICA ---
-
-def buscar_oferta_del_dia():
-    link = generate_link("AUTO_SYSTEM")
-    mensaje = (
-        "🚀 **OFERTA AUTOMÁTICA NEURAFORGE** 🚀\n\n"
-        "Sistema de búsqueda activa: Producto detectado.\n"
-        f"🔗 Enlace: {link}"
-    )
-    bot.send_message(ADMIN_CHAT_ID, mensaje, parse_mode="Markdown")
-
-schedule.every().day.at("09:00").do(buscar_oferta_del_dia)
-
-def run_scheduler():
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
-
-# --- LÓGICA DE WEBHOOK (RECEPCIÓN DE VENTAS) ---
+@bot.message_handler(func=lambda message: True)
+def agente_ventas(message):
+    model = genai.GenerativeModel('gemini-pro')
+    # Contexto para que Gemini sepa qué vender
+    contexto = f"Eres NeuraForgeAI. Tienes estos productos: {PRODUCTOS}. Recomienda el más adecuado según el interés del usuario. Sé persuasivo."
+    response = model.generate_content(f"{contexto}\nUsuario: {message.text}")
+    bot.reply_to(message, response.text)
 
 @app.route('/hotmart-webhook', methods=['POST'])
-def hotmart_webhook():
+def webhook():
     data = request.json
-    event = data.get("event")
-    
-    product_name = data.get("data", {}).get("product", {}).get("name", "Producto Desconocido")
-    price = data.get("data", {}).get("purchase", {}).get("commission", {}).get("value", 0)
-
-    if event == "PURCHASE_APPROVED":
-        mensaje = (
-            "💰 **¡VENTA CONFIRMADA!** 💰\n\n"
-            f"Felicidades Miguel, has vendido: *{product_name}*\n"
-            f"Comisión estimada: *${price}*\n\n"
-            "¡El sistema NeuraForge está funcionando!"
-        )
-        bot.send_message(ADMIN_CHAT_ID, mensaje, parse_mode="Markdown")
-
+    # Aquí es donde el bot "aprende" qué se vende para la rotación futura
+    if data.get("event") == "PURCHASE_APPROVED":
+        prod_name = data['data']['product']['name']
+        bot.send_message(ADMIN_CHAT_ID, f"💰 ¡Venta de {prod_name} confirmada!")
     return jsonify({"status": "ok"}), 200
 
 if __name__ == "__main__":
-    threading.Thread(target=run_scheduler, daemon=True).start()
-    threading.Thread(target=bot.polling, kwargs={'non_stop': True}, daemon=True).start()
-    
-    port = int(os.environ.get("PORT", 5000))
+    port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port)
-    
