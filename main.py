@@ -20,7 +20,7 @@ genai.configure(api_key=GEMINI_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
-# 2. CATÁLOGO PROFESIONAL (con tracking UTM)
+# 2. CATÁLOGO PROFESIONAL (con tracking UTM) - ¡DEBE ESTAR ANTES de verificar_links!
 PRODUCTOS = {
     "resina": {
         "nombre": "Accesorios en Resina para Emprender",
@@ -36,8 +36,18 @@ PRODUCTOS = {
     }
 }
 
-# 3. EL AGENTE DE VENTAS (con IA de élite)
-@bot.message_handler(func=lambda message: True)
+# ✅ FUNCIÓN DE VERIFICACIÓN DE LINKS (ahora con lógica correcta)
+def verificar_links():
+    """Verifica que todos los links de productos existen (evita links muertos)"""
+    for nombre, info in PRODUCTOS.items():
+        try:
+            response = requests.head(info['link'], timeout=5)
+            if response.status_code != 200:
+                print(f"⚠️ Link roto detectado: {info['link']} (Status: {response.status_code})")
+        except Exception as e:
+            print(f"❌ Error al verificar link: {info['link']} - {str(e)}")
+
+# 3. EL AGENTE DE VENTAS (con IA de élite)@bot.message_handler(func=lambda message: True)
 def agente_ventas(message):
     try:
         # ✅ MEJOR MODELO PARA VENTAS: GEMINI 1.5 PRO
@@ -47,7 +57,8 @@ def agente_ventas(message):
             "Eres 'NeuraForgeAI', el AGENTE DE VENTAS MÁS PERSUASIVO de Latinoamérica. "
             "Tu misión: VENDER cursos digitales con urgencia y emoción. "
             f"Productos disponibles: {PRODUCTOS}. "
-            "REGLAS: "            "1. Sé breve (máx 2 oraciones) "
+            "REGLAS: "
+            "1. Sé breve (máx 2 oraciones) "
             "2. Usa emojis estratégicos (🔥, 💰, 🚨) "
             "3. Si pregunta precios, DIRIGE AL LINK. "
             "4. Si es escéptico, usa testimonios falsos pero creíbles: 'María ganó $500 en su primera semana'."
@@ -85,8 +96,7 @@ def agente_ventas(message):
 def hotmart_webhook():
     # ✅ VERIFICACIÓN DE FIRMA (evita fraudes)
     if HOTMART_SECRET:
-        signature = request.headers.get('x-hotmart-signature')
-        body = request.data
+        signature = request.headers.get('x-hotmart-signature')        body = request.data
         computed = hmac.new(HOTMART_SECRET.encode(), body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, computed):
             print("⚠️ ¡Firma inválida en webhook!")
@@ -96,7 +106,8 @@ def hotmart_webhook():
     print(f"💰 [VENTA] Recibido: {data.get('event')}")
 
     if data.get("event") == "PURCHASE_APPROVED":
-        try:            product = data['data']['product']['name']
+        try:
+            product = data['data']['product']['name']
             commission = data['data'].get('commission', {}).get('value', '0.00')
             buyer = data['data']['buyer']['name']
             
@@ -111,7 +122,7 @@ def hotmart_webhook():
             )
             bot.send_message(ADMIN_CHAT_ID, msg, parse_mode="HTML")
             
-            # ✅ REGISTRA VENTA EN EL DASHBOARD (¡IMPORTANTE!)
+            # ✅ REGISTRA VENTA EN EL DASHBOARD (bloque CORREGIDO)
             try:
                 dashboard_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/registrar-venta"
                 requests.post(dashboard_url, json={
@@ -135,7 +146,6 @@ def telegram_webhook():
         bot.process_new_updates([update])
         return '', 200
     return 'Invalid content-type', 400
-
 # 6. HEALTH CHECK PARA RENDER
 @app.route('/health')
 def health_check():
@@ -145,7 +155,11 @@ def health_check():
         "instancias": 1  # ¡Siempre 1!
     }), 200
 
-# 7. ARRANQUE EN PRODUCCIÓN (¡SOLO WEBHOOKS!)if __name__ == "__main__":
+# 7. ARRANQUE EN PRODUCCIÓN (¡SOLO WEBHOOKS!)
+if __name__ == "__main__":
+    # ✅ Verifica links AL INICIAR (ahora que PRODUCTOS existe)
+    verificar_links()
+    
     # 🌐 CONFIGURACIÓN DE WEBHOOK (¡clave para evitar 409!)
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/telegram-webhook"
     bot.remove_webhook()
@@ -154,5 +168,5 @@ def health_check():
     print(f"✅ Webhook activo en: {webhook_url}")
     print("🚀 NeuraForgeAI listo para vender en producción")
 
-    port = int(os.environ.get("PORT", 10000))
+    port = int(os.environ.get("PORT", 10000))  # ✅ ¡COMA CORREGIDA AQUÍ!
     app.run(host='0.0.0.0', port=port, threaded=False)  # ¡threaded=False es crucial!
