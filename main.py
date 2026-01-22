@@ -96,7 +96,8 @@ def agente_ventas(message):
 def hotmart_webhook():
     # ✅ VERIFICACIÓN DE FIRMA (evita fraudes)
     if HOTMART_SECRET:
-        signature = request.headers.get('x-hotmart-signature')        body = request.data
+        signature = request.headers.get('x-hotmart-signature')  # CORREGIDO: nombre correcto
+        body = request.data  # AQUÍ SÍ DEBE IR EN LÍNEA SEPARADA
         computed = hmac.new(HOTMART_SECRET.encode(), body, hashlib.sha256).hexdigest()
         if not hmac.compare_digest(signature, computed):
             print("⚠️ ¡Firma inválida en webhook!")
