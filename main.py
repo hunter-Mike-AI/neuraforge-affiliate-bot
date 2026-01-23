@@ -1,5 +1,6 @@
 import os
 import time
+import threading
 import requests
 import json
 from datetime import datetime
@@ -8,402 +9,423 @@ load_dotenv()
 
 import telebot
 from flask import Flask, request
+from telebot import types
 
-# ========== CONFIGURACIÓN DE APIs ==========
+# =================== CONFIGURACIÓN ===================
+TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
+ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
+DEEPSEEK_API_KEY = os.environ.get('DEEPSEEK_API_KEY', '')
+OPENAI_API_KEY = os.environ.get('OPENAI_API_KEY', '')
+GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
+
+# --- PRODUCTO ÚNICO (Curso de Resina) ---
+PRODUCTO = {
+    'nombre': 'Curso de Resina Epóxica',
+    'precio': 97,  # Precio del curso (ajustar si es diferente)
+    'comision': 48.5,  # Tu comisión (50%)
+    'link': 'http://bit.ly/3LsKPAo',  # Tu link de afiliado
+    'bonus': '🔥 BONUS: Kit de herramientas profesionales + Plantillas de Instagram',
+    'testimonios': [
+        "María facturó $800 en su primera semana con resina",
+        "Juan dejó su trabajo y ahora vive de sus creaciones",
+        "Ana triplicó sus ingresos en 2 meses"
+    ]
+}
+
+# =================== GESTOR INTELIGENTE DE APIs ===================
 class APIManager:
-    """Gestor inteligente de APIs que escala según demanda y presupuesto"""
+    """Sistema inteligente que selecciona la mejor API según el lead y ventas"""
     
     def __init__(self):
         self.apis = {
-            # NIVEL 1: GRATIS (para empezar)
-            'deepseek_free': {
+            'deepseek': {
+                'name': 'DeepSeek',
                 'url': 'https://api.deepseek.com/v1/chat/completions',
-                'key': os.environ.get('DEEPSEEK_API_KEY', ''),
-                'model': 'deepseek-chat',
-                'cost_per_1k_tokens': 0.0,  # GRATIS
-                'max_monthly_tokens': 5_000_000,  # Límite mensual
-                'tokens_used_this_month': 0,
-                'priority': 1,  # Primera opción
-                'status': 'active'
+                'key': DEEPSEEK_API_KEY,
+                'cost_per_1k': 0.0,
+                'monthly_tokens': 5000000,
+                'tokens_used': 0,
+                'active': True,
+                'priority': 1
             },
-            
-            # NIVEL 2: ECONÓMICO (cuando empiece a vender)
-            'openai_gpt35': {
+            'gpt35': {
+                'name': 'GPT-3.5 Turbo',
                 'url': 'https://api.openai.com/v1/chat/completions',
-                'key': os.environ.get('OPENAI_API_KEY', ''),
-                'model': 'gpt-3.5-turbo',
-                'cost_per_1k_tokens': 0.0015,  # $1.5 por 1M tokens
-                'max_monthly_budget': 50,  # $50 máximo al mes
-                'spent_this_month': 0,
-                'priority': 2,
-                'status': 'inactive'  # Se activa cuando haya ventas
+                'key': OPENAI_API_KEY,
+                'cost_per_1k': 0.0015,
+                'monthly_budget': 20,
+                'spent': 0,
+                'active': False,  # Se activa con ventas
+                'priority': 2
             },
-            
-            # NIVEL 3: CALIDAD (para clientes premium)
-            'openai_gpt4': {
-                'url': 'https://api.openai.com/v1/chat/completions',
-                'key': os.environ.get('OPENAI_GPT4_KEY', ''),
-                'model': 'gpt-4-turbo',
-                'cost_per_1k_tokens': 0.03,  # $30 por 1M tokens
-                'max_monthly_budget': 100,
-                'spent_this_month': 0,
-                'priority': 3,
-                'status': 'inactive'
-            },
-            
-            # NIVEL 4: BACKUP (si fallan las otras)
-            'gemini_free': {
-                'url': 'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent',
-                'key': os.environ.get('GEMINI_API_KEY', ''),
-                'model': 'gemini-pro',
-                'cost_per_1k_tokens': 0.0,
-                'rate_limit': 60,  # solicitudes por minuto
-                'priority': 4,
-                'status': 'active'
+            'gemini': {
+                'name': 'Gemini Pro',
+                'url': f'https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key={GEMINI_API_KEY}',
+                'key': GEMINI_API_KEY,
+                'cost_per_1k': 0.0,
+                'rate_limit': 60,
+                'active': True,
+                'priority': 3
             }
         }
         
-        self.current_api = 'deepseek_free'
-        self.monthly_revenue = 0  # Ingresos del mes
-        self.api_usage_log = []  # Registro de uso
+        self.monthly_revenue = 0
+        self.total_sales = 0
+        self.conversion_log = []
         
-    def update_revenue(self, sale_amount):
-        """Actualiza los ingresos cuando hay una venta"""
-        self.monthly_revenue += sale_amount
-        print(f"💰 Ingreso registrado: ${sale_amount}. Total mes: ${self.monthly_revenue}")
-        
-        # Si hay ingresos > $100, activar APIs de pago
-        if self.monthly_revenue > 100 and self.apis['openai_gpt35']['status'] == 'inactive':
-            print("🚀 Activando API de pago (GPT-3.5) por ingresos > $100")
-            self.apis['openai_gpt35']['status'] = 'active'
-            
-        if self.monthly_revenue > 500 and self.apis['openai_gpt4']['status'] == 'inactive':
-            print("🎯 Activando API premium (GPT-4) por ingresos > $500")
-            self.apis['openai_gpt4']['status'] = 'active'
+        print("🤖 Gestor de APIs inicializado")
+        print(f"   - DeepSeek: {'✅ Activo' if self.apis['deepseek']['active'] else '❌ Inactivo'}")
+        print(f"   - GPT-3.5: {'✅ Activo' if self.apis['gpt35']['active'] else '❌ Inactivo'}")
+        print(f"   - Gemini: {'✅ Activo' if self.apis['gemini']['active'] else '❌ Inactivo'}")
     
-    def select_best_api(self, message_length=100):
-        """Selecciona la mejor API según costo y disponibilidad"""
-        available_apis = []
+    def register_sale(self, amount):
+        """Registra una venta y actualiza la estrategia de APIs"""
+        self.monthly_revenue += amount
+        self.total_sales += 1
         
-        for api_name, api_config in self.apis.items():
-            if api_config['status'] == 'active':
-                # Verificar límites
-                if api_name == 'deepseek_free':
-                    if api_config['tokens_used_this_month'] >= api_config['max_monthly_tokens']:
-                        print(f"⚠️ {api_name} alcanzó límite mensual")
-                        continue
-                
-                if 'max_monthly_budget' in api_config:
-                    estimated_cost = (message_length / 1000) * api_config['cost_per_1k_tokens']
-                    if api_config['spent_this_month'] + estimated_cost > api_config['max_monthly_budget']:
-                        print(f"⚠️ {api_name} superaría presupuesto mensual")
-                        continue
-                
-                available_apis.append((api_name, api_config['priority']))
+        print(f"💰 Venta registrada: ${amount} | Total mes: ${self.monthly_revenue}")
         
-        if not available_apis:
-            # Todas las APIs están en límite, usar la más barata
-            print("⚠️ Todas las APIs en límite, usando deepseek_free como fallback")
-            return 'deepseek_free'
+        # Lógica de escalado automático
+        if self.monthly_revenue >= 100 and not self.apis['gpt35']['active']:
+            self.apis['gpt35']['active'] = True
+            print("🚀 Activando GPT-3.5 (ventas > $100)")
         
-        # Ordenar por prioridad (menor número = mayor prioridad)
-        available_apis.sort(key=lambda x: x[1])
-        return available_apis[0][0]
+        # Guardar log
+        self.conversion_log.append({
+            'date': datetime.now().isoformat(),
+            'amount': amount,
+            'monthly_revenue': self.monthly_revenue
+        })
     
-    def call_api(self, prompt, api_name=None):
-        """Llama a la API seleccionada"""
-        if not api_name:
-            api_name = self.select_best_api(len(prompt))
+    def detect_lead_value(self, message_text):
+        """Detecta el valor potencial del lead basado en el mensaje"""
+        text = message_text.lower()
         
-        api_config = self.apis[api_name]
+        # Palabras clave de ALTO valor
+        high_value_keywords = ['comprar', 'quiero', 'compro', 'pagar', 'tarjeta', 'cupo', 'ahora', 'inmediato']
         
+        # Palabras clave de MEDIO valor
+        medium_value_keywords = ['precio', 'cuesta', 'valor', 'cuánto', 'información', 'detalles', 'cómo funciona']
+        
+        if any(word in text for word in high_value_keywords):
+            return 'high'  # Cliente listo para comprar
+        elif any(word in text for word in medium_value_keywords):
+            return 'medium'  # Cliente interesado
+        else:
+            return 'low'  # Cliente curioso
+    
+    def select_api(self, lead_value):
+        """Selecciona la API óptima para el lead"""
+        
+        # Lead de ALTO valor: usa la mejor API disponible
+        if lead_value == 'high':
+            if self.apis['gpt35']['active']:
+                return 'gpt35'
+            elif self.apis['gemini']['active']:
+                return 'gemini'
+            else:
+                return 'deepseek'
+        
+        # Lead de MEDIO valor: usa API balanceada
+        elif lead_value == 'medium':
+            if self.apis['gemini']['active']:
+                return 'gemini'
+            else:
+                return 'deepseek'
+        
+        # Lead de BAJO valor: usa API gratuita
+        else:
+            return 'deepseek'
+    
+    def generate_response(self, user_message):
+        """Genera una respuesta usando la API seleccionada"""
+        
+        # Detectar valor del lead
+        lead_value = self.detect_lead_value(user_message)
+        
+        # Seleccionar API
+        api_name = self.select_api(lead_value)
+        api = self.apis[api_name]
+        
+        print(f"🎯 Lead: {lead_value.upper()} | API: {api['name']}")
+        
+        # Preparar prompt optimizado para ventas
+        prompt = self._create_sales_prompt(user_message)
+        
+        # Llamar a la API correspondiente
+        if api_name == 'deepseek':
+            return self._call_deepseek(prompt, api)
+        elif api_name == 'gpt35':
+            return self._call_openai(prompt, api)
+        elif api_name == 'gemini':
+            return self._call_gemini(prompt, api)
+        else:
+            return self._fallback_response()
+    
+    def _create_sales_prompt(self, user_message):
+        """Crea un prompt optimizado para vender el curso de resina"""
+        
+        return f"""
+        Eres 'NeuraForgeAI', un experto en el curso de RESINA EPÓXICA.
+        Tu única misión es vender este curso.
+        
+        INFORMACIÓN DEL CURSO:
+        • Nombre: {PRODUCTO['nombre']}
+        • Precio: ${PRODUCTO['precio']} USD
+        • Incluye: {PRODUCTO['bonus']}
+        • Link de compra: {PRODUCTO['link']}
+        • Testimonios reales: {', '.join(PRODUCTO['testimonios'])}
+        
+        REGLAS DE VENTA:
+        1. Responde SIEMPRE sobre el curso de resina
+        2. Sé breve (2-3 oraciones máximo)
+        3. Usa emojis relevantes (🎨, 💰, 🔥, 🚀)
+        4. Incluye UN testimonio en cada respuesta
+        5. Termina SIEMPRE con el link de compra
+        6. Crea URGENCIA: "Solo 5 cupos disponibles hoy"
+        
+        Usuario dice: "{user_message}"
+        
+        Tu respuesta (2-3 oraciones, con emojis y testimonio):
+        """
+    
+    def _call_deepseek(self, prompt, api):
+        """Llama a la API de DeepSeek"""
         try:
             headers = {
                 "Content-Type": "application/json",
-                "Authorization": f"Bearer {api_config['key']}"
+                "Authorization": f"Bearer {api['key']}"
             }
             
-            # Preparar payload según API
-            if 'openai' in api_name:
-                payload = {
-                    "model": api_config['model'],
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.8
-                }
-            elif 'deepseek' in api_name:
-                payload = {
-                    "model": api_config['model'],
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 300,
-                    "temperature": 0.8,
-                    "stream": False
-                }
-            elif 'gemini' in api_name:
-                # Formato diferente para Gemini
-                headers = {"Content-Type": "application/json"}
-                url = f"{api_config['url']}?key={api_config['key']}"
-                payload = {
-                    "contents": [{
-                        "parts": [{"text": prompt}]
-                    }],
-                    "generationConfig": {
-                        "maxOutputTokens": 300,
-                        "temperature": 0.8
-                    }
-                }
-                response = requests.post(url, headers=headers, json=payload, timeout=30)
-                data = response.json()
-                
-                # Registrar uso
-                self._log_usage(api_name, 100)  # Estimado
-                
-                if response.status_code == 200:
-                    return data['candidates'][0]['content']['parts'][0]['text']
-                return None
+            payload = {
+                "model": "deepseek-chat",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 200,
+                "temperature": 0.8,
+                "stream": False
+            }
             
-            # Para OpenAI y DeepSeek
-            response = requests.post(
-                api_config['url'], 
-                headers=headers, 
-                json=payload, 
-                timeout=30
-            )
+            if not api['key']:
+                # Intentar sin API key (puede funcionar para pruebas)
+                del headers["Authorization"]
+            
+            response = requests.post(api['url'], headers=headers, json=payload, timeout=30)
             
             if response.status_code == 200:
                 data = response.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                print(f"⚠️ DeepSeek error: {response.status_code}")
+                return self._fallback_response()
                 
-                # Calcular tokens usados (estimado)
-                tokens_used = len(prompt.split()) * 1.3  # Estimación simple
-                
-                # Registrar uso y costo
-                self._log_usage(api_name, tokens_used)
-                
-                if 'openai' in api_name:
-                    return data['choices'][0]['message']['content']
-                elif 'deepseek' in api_name:
-                    return data['choices'][0]['message']['content']
-            
-            print(f"❌ Error en {api_name}: {response.status_code}")
-            return None
-            
         except Exception as e:
-            print(f"🔥 Error llamando {api_name}: {e}")
-            return None
+            print(f"🔥 Error DeepSeek: {e}")
+            return self._fallback_response()
     
-    def _log_usage(self, api_name, tokens_used):
-        """Registra el uso de tokens y actualiza contadores"""
-        api_config = self.apis[api_name]
-        
-        if 'tokens_used_this_month' in api_config:
-            api_config['tokens_used_this_month'] += tokens_used
-        
-        if 'cost_per_1k_tokens' in api_config and api_config['cost_per_1k_tokens'] > 0:
-            cost = (tokens_used / 1000) * api_config['cost_per_1k_tokens']
-            api_config['spent_this_month'] += cost
-            
-        # Guardar en log
-        self.api_usage_log.append({
-            'timestamp': datetime.now().isoformat(),
-            'api': api_name,
-            'tokens': tokens_used,
-            'estimated_cost': cost if 'cost' in locals() else 0
-        })
-        
-        # Guardar en archivo para análisis
-        with open('api_usage.json', 'w') as f:
-            json.dump(self.api_usage_log, f, indent=2)
-    
-    def get_usage_report(self):
-        """Genera reporte de uso de APIs"""
-        report = {
-            'monthly_revenue': self.monthly_revenue,
-            'apis': {}
-        }
-        
-        for api_name, config in self.apis.items():
-            report['apis'][api_name] = {
-                'status': config['status'],
-                'tokens_used': config.get('tokens_used_this_month', 0),
-                'spent': config.get('spent_this_month', 0),
-                'max_tokens': config.get('max_monthly_tokens', 'N/A'),
-                'max_budget': config.get('max_monthly_budget', 'N/A')
+    def _call_openai(self, prompt, api):
+        """Llama a la API de OpenAI GPT-3.5"""
+        try:
+            headers = {
+                "Content-Type": "application/json",
+                "Authorization": f"Bearer {api['key']}"
             }
-        
-        return report
+            
+            payload = {
+                "model": "gpt-3.5-turbo",
+                "messages": [{"role": "user", "content": prompt}],
+                "max_tokens": 200,
+                "temperature": 0.8
+            }
+            
+            response = requests.post(api['url'], headers=headers, json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+            else:
+                print(f"⚠️ OpenAI error: {response.status_code}")
+                # Fallback a Gemini
+                return self._call_gemini(prompt, self.apis['gemini'])
+                
+        except Exception as e:
+            print(f"🔥 Error OpenAI: {e}")
+            return self._fallback_response()
+    
+    def _call_gemini(self, prompt, api):
+        """Llama a la API de Google Gemini"""
+        try:
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }],
+                "generationConfig": {
+                    "maxOutputTokens": 200,
+                    "temperature": 0.8
+                }
+            }
+            
+            response = requests.post(api['url'], json=payload, timeout=30)
+            
+            if response.status_code == 200:
+                data = response.json()
+                return data['candidates'][0]['content']['parts'][0]['text']
+            else:
+                print(f"⚠️ Gemini error: {response.status_code}")
+                return self._fallback_response()
+                
+        except Exception as e:
+            print(f"🔥 Error Gemini: {e}")
+            return self._fallback_response()
+    
+    def _fallback_response(self):
+        """Respuesta de respaldo si fallan todas las APIs"""
+        responses = [
+            f"🎨 ¡El curso de Resina Epóxica está cambiando vidas! {PRODUCTO['testimonios'][0]} 💰\n\n👉 {PRODUCTO['link']}",
+            f"🔥 Oferta especial hoy: {PRODUCTO['nombre']} + {PRODUCTO['bonus']} 🚀\n\n👉 {PRODUCTO['link']}",
+            f"🚀 {PRODUCTO['testimonios'][1]} ¿Listo para empezar? 🎨\n\n👉 {PRODUCTO['link']}"
+        ]
+        import random
+        return random.choice(responses)
+    
+    def get_stats(self):
+        """Obtiene estadísticas del sistema"""
+        return {
+            'monthly_revenue': self.monthly_revenue,
+            'total_sales': self.total_sales,
+            'active_apis': [name for name, api in self.apis.items() if api['active']],
+            'conversions_today': len([log for log in self.conversion_log if log['date'].startswith(datetime.now().strftime('%Y-%m-%d'))])
+        }
 
-# ========== INICIALIZACIÓN ==========
-TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
-ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
+# =================== INICIALIZACIÓN ===================
 api_manager = APIManager()
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
-# Productos con comisiones
-PRODUCTOS = {
-    'ia': {
-        'nombre': 'Curso de IA para Afiliados',
-        'link': 'https://go.hotmart.com/TU_LINK_IA',
-        'price': 97,
-        'commission_rate': 0.50  # 50% comisión
-    },
-    'resina': {
-        'nombre': 'Curso de Resina Epóxica',
-        'link': 'https://go.hotmart.com/TU_LINK_RESINA',
-        'price': 67,
-        'commission_rate': 0.50
-    },
-    'velas': {
-        'nombre': 'Curso de Velas Artesanales',
-        'link': 'https://go.hotmart.com/TU_LINK_VELAS',
-        'price': 57,
-        'commission_rate': 0.50
-    }
-}
-
-# ========== HANDLERS DE TELEGRAM ==========
-@bot.message_handler(commands=['start'])
-def comando_start(message):
-    """Maneja /start con teclado interactivo"""
-    welcome_text = """
-🤖 *¡HOLA! SOY NEURAFORGEA* 🚀
-
-*🔥 EL AGENTE DE VENTAS INTELIGENTE*
-
-📦 *PRODUCTOS DISPONIBLES:*
-• 🧠 IA PARA AFILIADOS - $97 (50% comisión)
-• 🎨 RESINA EPÓXICA - $67 (50% comisión)
-• 🕯️ VELAS ARTESANALES - $57 (50% comisión)
-
-💰 *GANA HASTA $48.5 POR VENTA*
-
-_Escribe lo que quieras saber..._"""
+# =================== MANEJO DE TELEGRAM ===================
+@bot.message_handler(commands=['start', 'inicio'])
+def send_welcome(message):
+    """Envía mensaje de bienvenida con teclado"""
     
-    from telebot import types
+    welcome_text = f"""
+🎨 *¡BIENVENIDO A NEURAFORGEA!* 🔥
+
+*Especialistas en el CURSO DE RESINA EPÓXICA*
+
+💰 *GANA ${PRODUCTO['comision']} POR CADA VENTA*
+
+✅ *INCLUYE:*
+• {PRODUCTO['bonus']}
+• Soporte 24/7
+• Comunidad privada
+• Actualizaciones gratuitas
+
+🚀 *TESTIMONIOS:*
+• {PRODUCTO['testimonios'][0]}
+• {PRODUCTO['testimonios'][1]}
+
+💎 *¿Listo para empezar a ganar?*
+
+_Escribe tu pregunta o elige una opción:_"""
+    
+    # Crear teclado interactivo
     markup = types.ReplyKeyboardMarkup(row_width=2, resize_keyboard=True)
-    markup.add(
-        types.KeyboardButton("🧠 Curso IA ($97)"),
-        types.KeyboardButton("🎨 Curso Resina ($67)"),
-        types.KeyboardButton("🕯️ Curso Velas ($57)"),
-        types.KeyboardButton("💰 Comisiones"),
-        types.KeyboardButton("📊 Estadísticas"),
-        types.KeyboardButton("❓ Ayuda")
+    btn1 = types.KeyboardButton("🎨 Ver curso")
+    btn2 = types.KeyboardButton("💰 Precio y comisiones")
+    btn3 = types.KeyboardButton("🚀 Testimonios reales")
+    btn4 = types.KeyboardButton("💎 Bonus incluidos")
+    btn5 = types.KeyboardButton("❓ Cómo funciona")
+    btn6 = types.KeyboardButton("👑 Comprar ahora")
+    markup.add(btn1, btn2, btn3, btn4, btn5, btn6)
+    
+    bot.send_message(
+        message.chat.id,
+        welcome_text,
+        parse_mode="Markdown",
+        reply_markup=markup
     )
     
-    bot.send_message(message.chat.id, welcome_text, parse_mode="Markdown", reply_markup=markup)
+    # Registrar en logs
+    print(f"✅ /start de {message.from_user.id} (@{message.from_user.username})")
 
-# ========== WEBHOOK HOTMART (VENTAS REALES) ==========
-@app.route('/hotmart-webhook', methods=['POST'])
-def hotmart_webhook():
-    """Recibe ventas reales de Hotmart"""
-    try:
-        data = request.json
-        print(f"🔥 VENTA RECIBIDA: {json.dumps(data, indent=2)}")
-        
-        # Extraer datos de la venta
-        product_name = data.get('prod_name', '')
-        price = data.get('price', 0)
-        affiliate_commission = data.get('affiliate_commission', 0)
-        
-        # Notificar al admin
-        venta_text = f"""
-✅ *¡VENTA CONFIRMADA!* 🎉
+@bot.message_handler(commands=['stats', 'estadisticas'])
+def send_stats(message):
+    """Envía estadísticas al admin"""
+    if str(message.chat.id) == ADMIN_CHAT_ID:
+        stats = api_manager.get_stats()
+        stats_text = f"""
+📊 *ESTADÍSTICAS DEL BOT*
 
-📦 Producto: {product_name}
-💰 Precio: ${price}
-💸 Comisión: ${affiliate_commission}
-⏰ Hora: {datetime.now().strftime('%H:%M')}
+💰 Ingresos este mes: ${stats['monthly_revenue']}
+🛒 Ventas totales: {stats['total_sales']}
+🚀 APIs activas: {', '.join(stats['active_apis'])}
+📈 Conversiones hoy: {stats['conversions_today']}
 
-🚀 *¡NEURAFORGEA SIGUE FACTURANDO!*"""
-        
-        bot.send_message(ADMIN_CHAT_ID, venta_text, parse_mode="Markdown")
-        
-        # Actualizar ingresos en el API Manager
-        api_manager.update_revenue(affiliate_commission)
-        
-        return 'OK', 200
-        
-    except Exception as e:
-        print(f"❌ Error en webhook Hotmart: {e}")
-        return 'ERROR', 400
-
-# ========== MANEJO DE MENSAJES ==========
-@bot.message_handler(func=lambda message: True)
-def manejar_mensajes(message):
-    """Maneja todos los mensajes con IA escalable"""
-    try:
-        texto = message.text.lower()
-        
-        # Respuestas rápidas para optimizar costo
-        quick_responses = {
-            'comisiones': "💰 *COMISIONES* 💰\n\n• IA para Afiliados: $48.5 (50%)\n• Resina Epóxica: $33.5 (50%)\n• Velas Artesanales: $28.5 (50%)\n\n🚀 ¡Gana dinero recomendando!",
-            'estadísticas': f"📊 *ESTADÍSTICAS DEL BOT* 📊\n\n• Ingresos este mes: ${api_manager.monthly_revenue}\n• API actual: {api_manager.current_api}\n• Uso mensual: {api_manager.apis[api_manager.current_api].get('tokens_used_this_month', 0):,.0f} tokens",
-            'ayuda': "❓ *AYUDA* ❓\n\n• Pregunta sobre cualquier curso\n• Te daré info detallada\n• Te envío el link de afiliado\n• ¡Gana comisiones automáticas!",
-        }
-        
-        for keyword, response in quick_responses.items():
-            if keyword in texto:
-                bot.reply_to(message, response, parse_mode="Markdown")
-                return
-        
-        # Usar IA para respuestas complejas
-        prompt = f"""
-        Eres 'NeuraForgeAI', el mejor vendedor de cursos digitales.
-        
-        PRODUCTOS Y COMISIONES:
-        1. IA para Afiliados - ${PRODUCTOS['ia']['price']} USD (Ganas ${PRODUCTOS['ia']['price'] * PRODUCTOS['ia']['commission_rate']})
-        2. Resina Epóxica - ${PRODUCTOS['resina']['price']} USD (Ganas ${PRODUCTOS['resina']['price'] * PRODUCTOS['resina']['commission_rate']})
-        3. Velas Artesanales - ${PRODUCTOS['velas']['price']} USD (Ganas ${PRODUCTOS['velas']['price'] * PRODUCTOS['velas']['commission_rate']})
-        
-        Usuario pregunta: {message.text}
-        
-        Responde:
-        1. Breve y persuasivo (2-3 oraciones)
-        2. Incluye emojis relevantes
-        3. Menciona la comisión que ganará
-        4. Termina con link correspondiente
+🔗 Link de afiliado: {PRODUCTO['link']}
         """
+        bot.send_message(message.chat.id, stats_text, parse_mode="Markdown")
+    else:
+        bot.reply_to(message, "❌ Solo el administrador puede ver estadísticas")
+
+@bot.message_handler(func=lambda message: True)
+def handle_message(message):
+    """Maneja todos los mensajes de texto"""
+    try:
+        print(f"📥 Mensaje: {message.text[:50]}... de {message.from_user.id}")
         
-        respuesta = api_manager.call_api(prompt)
+        # Respuestas rápidas para optimizar
+        text = message.text.lower()
         
-        if respuesta:
-            bot.reply_to(message, respuesta)
+        # Botones predefinidos
+        if "ver curso" in text:
+            response = f"🎨 *CURSO DE RESINA EPÓXICA*\n\nAprende a crear:\n• Joyería exclusiva\n• Cuadros artísticos\n• Muebles únicos\n• Decoración premium\n\n💰 Vende cada pieza desde $50-$500\n\n👉 {PRODUCTO['link']}"
+            bot.reply_to(message, response, parse_mode="Markdown")
+            return
             
-            # Log para análisis
-            print(f"📝 IA usada: {api_manager.current_api} | Usuario: {message.from_user.id}")
-        else:
-            # Fallback si falla la IA
-            bot.reply_to(message, "🤖 ¡Hola! ¿Sobre qué curso quieres información?\n\n• 🧠 IA para Afiliados\n• 🎨 Resina Epóxica\n• 🕯️ Velas Artesanales")
+        elif "precio" in text or "comisiones" in text:
+            response = f"💰 *INVERSIÓN Y GANANCIAS*\n\n• Precio del curso: ${PRODUCTO['precio']}\n• Tu comisión por venta: ${PRODUCTO['comision']}\n\n🚀 *¡Gana ${PRODUCTO['comision']} por cada persona que refieras!*\n\n👉 {PRODUCTO['link']}"
+            bot.reply_to(message, response, parse_mode="Markdown")
+            return
             
+        elif "testimonios" in text:
+            testimonios_text = "\n\n".join([f"• {t}" for t in PRODUCTO['testimonios']])
+            response = f"🚀 *HISTORIAS REALES*\n\n{testimonios_text}\n\n🎨 ¿Listo para crear tu propia historia?\n\n👉 {PRODUCTO['link']}"
+            bot.reply_to(message, response, parse_mode="Markdown")
+            return
+            
+        elif "bonus" in text:
+            response = f"💎 *BONUS INCLUIDOS*\n\n{PRODUCTO['bonus']}\n\n➕ Acceso a comunidad privada\n➕ Soporte 24/7\n➕ Actualizaciones gratuitas\n\n👉 {PRODUCTO['link']}"
+            bot.reply_to(message, response, parse_mode="Markdown")
+            return
+            
+        elif "cómo funciona" in text or "funciona" in text:
+            response = f"❓ *¿CÓMO FUNCIONA?*\n\n1. Te afilias GRATIS\n2. Compartes el link: {PRODUCTO['link']}\n3. Cada venta te da ${PRODUCTO['comision']}\n4. Ganas dinero 24/7\n\n🚀 ¡Así de simple!"
+            bot.reply_to(message, response, parse_mode="Markdown")
+            return
+            
+        elif "comprar" in text or "quiero" in text:
+            # Lead CALIENTE - respuesta especial
+            response = f"🔥 *¡DECISIÓN INTELIGENTE!*\n\n🎨 {PRODUCTO['nombre']}\n💰 ${PRODUCTO['precio']} (Tú ganas ${PRODUCTO['comision']})\n💎 {PRODUCTO['bonus']}\n\n🚨 *OFERTA: Solo 3 cupos disponibles hoy*\n\n👉 {PRODUCTO['link']}?utm_source=bot&utm_medium=hotlead"
+            bot.reply_to(message, response, parse_mode="Markdown")
+            
+            # Notificar al admin
+            bot.send_message(
+                ADMIN_CHAT_ID,
+                f"🔥 LEAD CALIENTE!\nUser: @{message.from_user.username}\nID: {message.from_user.id}\nMensaje: {message.text[:100]}..."
+            )
+            return
+        
+        # Si no es una respuesta rápida, usar el sistema de IA inteligente
+        response = api_manager.generate_response(message.text)
+        bot.reply_to(message, response)
+        
     except Exception as e:
-        print(f"🔥 Error en mensaje: {e}")
-        bot.reply_to(message, "🤖 ¡Hola! ¿En qué curso te puedo ayudar hoy?")
+        print(f"🔥 Error en handle_message: {e}")
+        bot.reply_to(message, "🎨 ¡Hola! ¿Te interesa el curso de Resina Epóxica? Escribe 'info' para más detalles")
 
-# ========== ENDPOINTS DE CONTROL ==========
-@app.route('/api/status')
-def api_status():
-    """Dashboard para ver estado de APIs y ventas"""
-    report = api_manager.get_usage_report()
-    return {
-        'status': 'active',
-        'timestamp': datetime.now().isoformat(),
-        'monthly_revenue': report['monthly_revenue'],
-        'apis': report['apis'],
-        'current_api': api_manager.current_api
-    }
-
-@app.route('/api/switch/<api_name>')
-def switch_api(api_name):
-    """Cambiar API manualmente (protegido)"""
-    # Aquí deberías agregar autenticación
-    if api_name in api_manager.apis:
-        api_manager.current_api = api_name
-        return {'status': 'switched', 'new_api': api_name}
-    return {'status': 'error', 'message': 'API no encontrada'}
-
-# ========== WEBHOOK TELEGRAM ==========
+# =================== WEBHOOKS ===================
 @app.route('/telegram-webhook', methods=['POST'])
 def telegram_webhook():
+    """Webhook para recibir mensajes de Telegram"""
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
@@ -411,39 +433,147 @@ def telegram_webhook():
         return 'OK', 200
     return 'Error', 400
 
-@app.route('/')
-def index():
-    return '🚀 NeuraForgeAI Bot - Sistema de APIs Escalable'
+@app.route('/hotmart-webhook', methods=['POST'])
+def hotmart_webhook():
+    """Webhook para recibir ventas de Hotmart"""
+    try:
+        data = request.json
+        print(f"🔥 VENTA RECIBIDA: {json.dumps(data, indent=2)}")
+        
+        # Extraer datos importantes
+        product_name = data.get('prod_name', 'Producto desconocido')
+        price = float(data.get('price', 0))
+        commission = float(data.get('affiliate_commission', 0))
+        
+        # Registrar la venta en el sistema
+        api_manager.register_sale(commission)
+        
+        # Notificar al admin
+        sale_text = f"""
+✅ *¡VENTA CONFIRMADA!* 🎉
 
-# ========== MAIN ==========
+📦 Producto: {product_name}
+💰 Precio: ${price}
+💸 Tu comisión: ${commission}
+👤 Total ventas: {api_manager.total_sales}
+📈 Ingresos mes: ${api_manager.monthly_revenue}
+
+🚀 *¡NEURAFORGEA SIGUE FACTURANDO!*"""
+        
+        bot.send_message(ADMIN_CHAT_ID, sale_text, parse_mode="Markdown")
+        
+        # Guardar log de venta
+        with open('sales_log.json', 'a') as f:
+            log_entry = {
+                'timestamp': datetime.now().isoformat(),
+                'product': product_name,
+                'price': price,
+                'commission': commission,
+                'data': data
+            }
+            f.write(json.dumps(log_entry) + '\n')
+        
+        return 'OK', 200
+        
+    except Exception as e:
+        print(f"❌ Error en webhook Hotmart: {e}")
+        return 'ERROR', 400
+
+@app.route('/health')
+def health_check():
+    """Endpoint para verificar que el bot está vivo"""
+    return {
+        'status': 'active',
+        'timestamp': datetime.now().isoformat(),
+        'product': PRODUCTO['nombre'],
+        'monthly_revenue': api_manager.monthly_revenue,
+        'total_sales': api_manager.total_sales
+    }
+
+@app.route('/')
+def home():
+    """Página principal"""
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>NeuraForgeAI Bot</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        <style>
+            body {{ font-family: Arial, sans-serif; text-align: center; padding: 50px; }}
+            .container {{ max-width: 800px; margin: 0 auto; }}
+            .status {{ color: green; font-weight: bold; }}
+            .product {{ background: #f8f9fa; padding: 20px; border-radius: 10px; margin: 20px 0; }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 NeuraForgeAI Bot</h1>
+            <p class="status">✅ Bot activo y listo para vender</p>
+            
+            <div class="product">
+                <h2>🎨 {PRODUCTO['nombre']}</h2>
+                <p><strong>Precio:</strong> ${PRODUCTO['precio']} USD</p>
+                <p><strong>Tu comisión:</strong> ${PRODUCTO['comision']} por venta</p>
+                <p><strong>Link de afiliado:</strong> <a href="{PRODUCTO['link']}">{PRODUCTO['link']}</a></p>
+            </div>
+            
+            <p><a href="/health">Ver estado del sistema</a></p>
+            <p>📊 Ventas este mes: ${api_manager.monthly_revenue}</p>
+            <p>🛒 Total de ventas: {api_manager.total_sales}</p>
+        </div>
+    </body>
+    </html>
+    """
+
+# =================== FUNCIONES DE SEGUIMIENTO ===================
+def follow_up_hot_leads():
+    """Envía seguimiento automático a leads calientes"""
+    # Esta función se puede expandir para guardar leads y seguirlos
+    pass
+
+# =================== INICIALIZACIÓN ===================
 if __name__ == "__main__":
-    print("🚀 Iniciando NeuraForgeAI Bot con Sistema de APIs Escalable...")
-    print(f"💰 API inicial: {api_manager.current_api}")
-    print(f"📊 Ingresos mes: ${api_manager.monthly_revenue}")
+    print("""
+    🚀 NEURAFORGEA BOT - SISTEMA DE VENTAS INTELIGENTE
+    -------------------------------------------------
+    Producto: Curso de Resina Epóxica
+    Comisión: $48.5 por venta
+    Link: http://bit.ly/3LsKPAo
+    -------------------------------------------------
+    """)
     
-    # Configurar webhooks
+    # Configurar webhook
     try:
         render_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
         
         if render_hostname:
-            # Webhook Telegram
             webhook_url = f"https://{render_hostname}/telegram-webhook"
             bot.remove_webhook()
             time.sleep(1)
             bot.set_webhook(url=webhook_url)
-            print(f"✅ Telegram Webhook: {webhook_url}")
+            print(f"✅ Webhook configurado: {webhook_url}")
             
-            # Webhook Hotmart
+            # Mostrar información importante
+            print(f"🔗 Link de afiliado: {PRODUCTO['link']}")
+            print(f"👑 Comisión por venta: ${PRODUCTO['comision']}")
+            print(f"📞 Admin ID: {ADMIN_CHAT_ID}")
+            
+            # Hotmart webhook URL
             hotmart_url = f"https://{render_hostname}/hotmart-webhook"
-            print(f"✅ Hotmart Webhook: {hotmart_url}")
-            print("🔗 Configura este URL en Hotmart -> Configuración -> Webhook")
+            print(f"🔥 Hotmart Webhook URL: {hotmart_url}")
+            print("   Configura esta URL en Hotmart -> Afiliados -> Webhook")
         else:
-            print("⚠️ Sin RENDER_EXTERNAL_HOSTNAME")
+            print("⚠️ No se encontró RENDER_EXTERNAL_HOSTNAME")
+            print("⚠️ Ejecutando sin webhook (solo para desarrollo)")
+            bot.remove_webhook()
             
     except Exception as e:
-        print(f"❌ Error configurando webhooks: {e}")
+        print(f"❌ Error configurando webhook: {e}")
     
-    print("🤖 Bot listo para generar dinero real 💰")
+    print("\n🤖 Bot iniciado correctamente")
+    print("💬 Envía /start a tu bot en Telegram para probarlo")
     
+    # Iniciar servidor Flask
     port = int(os.environ.get("PORT", 10000))
     app.run(host='0.0.0.0', port=port, debug=False)
