@@ -1,7 +1,6 @@
 # 🔁 DIFUSIÓN AUTOMÁTICA Y RETARimport os
 from dotenv import load_dotenv
 load_dotenv()
-
 import telebot
 from flask import Flask, request
 import google.generativeai as genai
