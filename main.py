@@ -7,14 +7,14 @@ load_dotenv()
 
 import telebot
 from flask import Flask, request
-import google.generativeai as genai  # ✅ CORREGIDO
+import google.generativeai as genai  # ✅ CORRECTO: google.generativeai, NO google.gmail
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
-GEMINI_API_KEY = os.environ['GEMINI_API_KEY']  # ✅ CORREGIDO
+GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
 HOTMART_SECRET = os.environ.get('HOTMART_SECRET', '')
 
-# Definir PRODUCTOS (faltaba en tu código)
+# Definir PRODUCTOS
 PRODUCTOS = {
     'ia': {
         'nombre': 'Curso de IA para Afiliados',
@@ -30,7 +30,7 @@ PRODUCTOS = {
     }
 }
 
-genai.configure(api_key=GEMINI_API_KEY)  # ✅ AHORA SÍ FUNCIONARÁ
+genai.configure(api_key=GEMINI_API_KEY)
 bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
 
@@ -43,7 +43,7 @@ DESTINOS_DIFUSION = [
 # Usuarios interesados pero sin compra (retargeting)
 USUARIOS_INTERESADOS = {}
 
-def verificar_links():  # ✅ FUNCIÓN AÑADIDA
+def verificar_links():
     """Verifica que todos los links de productos estén configurados"""
     for key, producto in PRODUCTOS.items():
         if 'TU_LINK' in producto['link']:
@@ -93,6 +93,7 @@ def iniciar_retargeting():
 
 @app.route('/telegram-webhook', methods=['POST'])
 def webhook():
+    """Endpoint para recibir updates de Telegram"""
     if request.headers.get('content-type') == 'application/json':
         json_string = request.get_data().decode('utf-8')
         update = telebot.types.Update.de_json(json_string)
@@ -101,8 +102,13 @@ def webhook():
     else:
         return 'Unsupported Media Type', 415
 
+@app.route('/', methods=['GET'])
+def index():
+    return '✅ Bot NeuraForgeAI está activo'
+
 @bot.message_handler(func=lambda message: True)
 def agente_ventas(message):
+    """Maneja todos los mensajes de Telegram"""
     try:
         model = genai.GenerativeModel('gemini-1.5-pro')
         contexto = (
@@ -144,19 +150,27 @@ def agente_ventas(message):
         bot.reply_to(message, respuesta_ia)
     except Exception as e:
         bot.reply_to(message, "🤖 ¡Hola! Soy NeuraForgeAI. ¿En qué curso puedo ayudarte hoy? (Resina, Velas o IA)")
-        print(f"🔥 Error crítico en IA: {str(e)}")
+        print(f"🔥 Error en IA: {str(e)}")
 
 # 🔁 INICIO DE DIFUSIÓN Y RETARGETING
 if __name__ == "__main__":
     verificar_links()
+    
+    # Iniciar hilos en segundo plano
     iniciar_difusion_automatica()
     iniciar_retargeting()
 
-    webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/telegram-webhook"
-    bot.remove_webhook()
-    bot.set_webhook(url=webhook_url, allowed_updates=['message'])
+    # Configurar webhook
+    render_hostname = os.environ.get('RENDER_EXTERNAL_HOSTNAME')
+    if render_hostname:
+        webhook_url = f"https://{render_hostname}/telegram-webhook"
+        bot.remove_webhook()
+        bot.set_webhook(url=webhook_url, allowed_updates=['message'])
+        print(f"✅ Webhook activo en: {webhook_url}")
+    else:
+        print("⚠️ No se encontró RENDER_EXTERNAL_HOSTNAME. Usando polling...")
+        bot.remove_webhook()
 
-    print(f"✅ Webhook activo en: {webhook_url}")
     print("🚀 NeuraForgeAI listo para vender en producción")
 
     port = int(os.environ.get("PORT", 10000))

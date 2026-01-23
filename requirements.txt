@@ -1,6 +1,13 @@
+<<<<<<< HEAD
 flask
 pyTelegramBotAPI
 google-generativeai
 python-dotenv
 requests
 gunicorn
+=======
+google-generativeai==0.3.0
+python-dotenv==1.0.0
+pyTelegramBotAPI==4.14.0
+Flask==2.3.3
+>>>>>>> 003782c (Actualización completa del bot: Corrección de imports de Gemini, estructura mejorada y nuevos módulos)
