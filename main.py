@@ -2,6 +2,7 @@
 import threading
 import time
 import random
+from dotenv import load_dotenv
 load_dotenv()
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
