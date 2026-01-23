@@ -137,7 +137,7 @@ if bot:
     @bot.message_handler(commands=['link'])
     def send_link(message):
         try:
-            bot.reply_to(message, "🔗 Enlace de afiliado: http://bit.ly/3LsKPAo")
+            bot.reply_to(message, "🔗 Enlace de afiliado: https://bit.ly/4a8qXf8")
         except Exception as e:
             logger.error(f"Error en /link: {e}")
 
