@@ -4,10 +4,24 @@ load_dotenv()
 
 import telebot
 from flask import Flask, request
-# Si estás usando Gemini, actualiza esta línea:
-# import google.generativeai as genai
-# por esta:
-import google.genai as genai
+
+# Inicializa el bot con tu token
+bot = telebot.TeleBot(os.environ["TELEGRAM_TOKEN"])
+
+# Aquí va tu handler de /start
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    bot.send_message(message.chat.id, "👋 ¡Bienvenido a NeuraForgeAI! ¿Listo para facturar?")
+
+# Configuración de Flask
+app = Flask(__name__)
+
+@app.route('/telegram-webhook', methods=['POST'])
+def telegram_webhook():
+    json_str = request.get_data().decode('UTF-8')
+    update = telebot.types.Update.de_json(json_str)
+    bot.process_new_updates([update])
+    return 'OK', 200
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
