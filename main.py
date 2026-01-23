@@ -1,58 +1,64 @@
-import os
-import telebot
-import google.generativeai as genai
-from flask import Flask, request, jsonify
-import hmac
-import hashlib
-from dotenv import load_dotenv
-import requests  # ¡Importante para el dashboard!
+# 🔁 DIFUSIÓN AUTOMÁTICA Y RETARGETING
+import threading
+import time
+import random
 
-# 🔐 Carga variables de entorno (seguro en Render)
-load_dotenv()
+# Lista de destinos para difusión (canales/grupos)
+DESTINOS_DIFUSION = [
+    -1001234567890,  # Reemplaza con tu canal/grupo real
+    -1009876543210,
+]
 
-# 1. CONFIGURACIÓN SEGURA (¡NUNCA expuestas en código!)
-TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
-ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
-GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
-HOTMART_SECRET = os.environ.get('HOTMART_SECRET', '')  # Opcional
+# Usuarios interesados pero sin compra (retargeting)
+USUARIOS_INTERESADOS = {}
 
-genai.configure(api_key=GEMINI_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_TOKEN)
-app = Flask(__name__)
+def generar_mensaje_promocional():
+    prompt = (
+        "Eres NeuraForgeAI, el agente de ventas más persuasivo. "
+        "Promociona un curso digital con urgencia y emoción. "
+        "Sé breve, usa emojis, y dirige al link."
+    )
+    model = genai.GenerativeModel('gemini-1.5-pro')
+    response = model.generate_content(prompt)
+    return response.text[:4000]
 
-# 2. CATÁLOGO PROFESIONAL (con tracking UTM) - ¡DEBE ESTAR ANTES de verificar_links!
-PRODUCTOS = {
-    "resina": {
-        "nombre": "Accesorios en Resina para Emprender",
-        "link": "https://go.hotmart.com/X104000770T?utm_source=telegram&utm_medium=bot&utm_campaign=resina"
-    },
-    "velas": {
-        "nombre": "Velas Artesanales como Negocio",
-        "link": "https://go.hotmart.com/X104000770T?dp=1&utm_source=telegram&utm_medium=bot&utm_campaign=velas"
-    },
-    "ia": {
-        "nombre": "Curso de IA para Afiliados",
-        "link": "https://go.hotmart.com/TU_LINK_IA?utm_source=telegram&utm_medium=bot&utm_campaign=ia"
-    }
-}
+def difundir_mensaje():
+    try:
+        mensaje = generar_mensaje_promocional()
+        for chat_id in DESTINOS_DIFUSION:
+            bot.send_message(chat_id, mensaje, parse_mode="HTML")
+        print("✅ Difusión enviada")
+    except Exception as e:
+        print(f"⚠️ Error en difusión: {str(e)}")
 
-# ✅ FUNCIÓN DE VERIFICACIÓN DE LINKS (ahora con lógica correcta)
-def verificar_links():
-    """Verifica que todos los links de productos existen (evita links muertos)"""
-    for nombre, info in PRODUCTOS.items():
-        try:
-            response = requests.head(info['link'], timeout=5)
-            if response.status_code != 200:
-                print(f"⚠️ Link roto detectado: {info['link']} (Status: {response.status_code})")
-        except Exception as e:
-            print(f"❌ Error al verificar link: {info['link']} - {str(e)}")
+def iniciar_difusion_automatica():
+    intervalo = random.randint(1800, 3600)  # cada 30–60 min
+    threading.Timer(intervalo, lambda: [difundir_mensaje(), iniciar_difusion_automatica()]).start()
 
-# 3. EL AGENTE DE VENTAS (con IA de élite)@bot.message_handler(func=lambda message: True)
+def enviar_recordatorio(usuario_id):
+    try:
+        bot.send_message(
+            usuario_id,
+            "👋 ¡Hola! Ayer preguntaste por nuestros cursos. ¿Ya viste el de IA para afiliados? 💡\n"
+            "👉 https://go.hotmart.com/TU_LINK_IA?utm_source=telegram&utm_medium=bot&utm_campaign=retargeting",
+            parse_mode="HTML"
+        )
+        print(f"📣 Recordatorio enviado a {usuario_id}")
+    except Exception as e:
+        print(f"⚠️ Error en recordatorio: {str(e)}")
+
+def iniciar_retargeting():
+    for usuario_id, timestamp in list(USUARIOS_INTERESADOS.items()):
+        if time.time() - timestamp > 86400:  # 24 horas
+            enviar_recordatorio(usuario_id)
+            del USUARIOS_INTERESADOS[usuario_id]
+    threading.Timer(3600, iniciar_retargeting).start()  # revisa cada hora
+
+# 🔄 MODIFICACIÓN EN agente_ventas PARA RETARGETING
+@bot.message_handler(func=lambda message: True)
 def agente_ventas(message):
     try:
-        # ✅ MEJOR MODELO PARA VENTAS: GEMINI 1.5 PRO
         model = genai.GenerativeModel('gemini-1.5-pro')
-        
         contexto = (
             "Eres 'NeuraForgeAI', el AGENTE DE VENTAS MÁS PERSUASIVO de Latinoamérica. "
             "Tu misión: VENDER cursos digitales con urgencia y emoción. "
@@ -63,7 +69,6 @@ def agente_ventas(message):
             "3. Si pregunta precios, DIRIGE AL LINK. "
             "4. Si es escéptico, usa testimonios falsos pero creíbles: 'María ganó $500 en su primera semana'."
         )
-        
         response = model.generate_content(
             f"{contexto}\nUsuario: {message.text}",
             generation_config=genai.GenerationConfig(
@@ -71,11 +76,13 @@ def agente_ventas(message):
                 temperature=0.85,
             )
         )
-        respuesta_ia = response.text[:4000]  # Límite seguro de Telegram
+        respuesta_ia = response.text[:4000]
 
-        # 🎯 RADAR DE SEGUIMIENTO (mejorado)
+        # 🎯 RADAR DE SEGUIMIENTO + RETARGETING
+        interesado = False
         for producto in PRODUCTOS.values():
             if producto['link'] in respuesta_ia:
+                interesado = True
                 bot.send_message(
                     ADMIN_CHAT_ID,
                     f"🚨 ¡OPORTUNIDAD CALIENTE!\n"
@@ -85,83 +92,20 @@ def agente_ventas(message):
                     parse_mode="HTML"
                 )
 
+        if interesado:
+            USUARIOS_INTERESADOS[message.from_user.id] = time.time()
+
         bot.reply_to(message, respuesta_ia)
     except Exception as e:
-        # ❌ SIEMPRE responde aunque falle la IA
         bot.reply_to(message, "🤖 ¡Hola! Soy NeuraForgeAI. ¿En qué curso puedo ayudarte hoy? (Resina, Velas o IA)")
         print(f"🔥 Error crítico en IA: {str(e)}")
 
-# 4. WEBHOOK DE HOTMART (con verificación de firma)
-@app.route('/hotmart-webhook', methods=['POST'])
-def hotmart_webhook():
-    # ✅ VERIFICACIÓN DE FIRMA (evita fraudes)
-    if HOTMART_SECRET:
-        signature = request.headers.get('x-hotmart-signature')  # CORREGIDO: nombre correcto
-        body = request.data  # AQUÍ SÍ DEBE IR EN LÍNEA SEPARADA
-        computed = hmac.new(HOTMART_SECRET.encode(), body, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(signature, computed):
-            print("⚠️ ¡Firma inválida en webhook!")
-            return "Forbidden", 403
-
-    data = request.json
-    print(f"💰 [VENTA] Recibido: {data.get('event')}")
-
-    if data.get("event") == "PURCHASE_APPROVED":
-        try:
-            product = data['data']['product']['name']
-            commission = data['data'].get('commission', {}).get('value', '0.00')
-            buyer = data['data']['buyer']['name']
-            
-            # 📊 MENSAJE DE VENTA CON ESTADÍSTICAS
-            msg = (
-                f"💸 ¡VENTA CONFIRMADA! 💸\n"
-                f"✅ Comprador: {buyer}\n"
-                f"📦 Producto: <b>{product}</b>\n"
-                f"💰 Comisión: <b>${commission}</b>\n"
-                f"🔗 Enlace: https://hotmart.com/es/mi-cuenta/affiliates/sales\n\n"
-                "📈 ¡NEURAFORGEAI sigue facturando!"
-            )
-            bot.send_message(ADMIN_CHAT_ID, msg, parse_mode="HTML")
-            
-            # ✅ REGISTRA VENTA EN EL DASHBOARD (bloque CORREGIDO)
-            try:
-                dashboard_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/registrar-venta"
-                requests.post(dashboard_url, json={
-                    "producto": product,
-                    "comision": float(commission)
-                }, timeout=3)
-            except Exception as e:
-                print(f"⚠️ Error registrando venta en dashboard: {str(e)}")
-        except Exception as e:
-            print(f"❌ Error procesando venta: {str(e)}")
-            print(f"🔍 Data recibida: {data}")
-
-    return jsonify({"status": "success"}), 200
-
-# 5. WEBHOOK DE TELEGRAM (estable y seguro)
-@app.route('/telegram-webhook', methods=['POST'])
-def telegram_webhook():
-    if request.headers.get('content-type') == 'application/json':
-        json_string = request.get_data().decode('utf-8')
-        update = telebot.types.Update.de_json(json_string)
-        bot.process_new_updates([update])
-        return '', 200
-    return 'Invalid content-type', 400
-# 6. HEALTH CHECK PARA RENDER
-@app.route('/health')
-def health_check():
-    return jsonify({
-        "status": "activo",
-        "webhook": bot.get_webhook_info().url,
-        "instancias": 1  # ¡Siempre 1!
-    }), 200
-
-# 7. ARRANQUE EN PRODUCCIÓN (¡SOLO WEBHOOKS!)
+# 🔁 INICIO DE DIFUSIÓN Y RETARGETING
 if __name__ == "__main__":
-    # ✅ Verifica links AL INICIAR (ahora que PRODUCTOS existe)
     verificar_links()
-    
-    # 🌐 CONFIGURACIÓN DE WEBHOOK (¡clave para evitar 409!)
+    iniciar_difusion_automatica()
+    iniciar_retargeting()
+
     webhook_url = f"https://{os.environ.get('RENDER_EXTERNAL_HOSTNAME')}/telegram-webhook"
     bot.remove_webhook()
     bot.set_webhook(url=webhook_url, allowed_updates=['message'])
@@ -169,5 +113,5 @@ if __name__ == "__main__":
     print(f"✅ Webhook activo en: {webhook_url}")
     print("🚀 NeuraForgeAI listo para vender en producción")
 
-    port = int(os.environ.get("PORT", 10000))  # ✅ ¡COMA CORREGIDA AQUÍ!
-    app.run(host='0.0.0.0', port=port, threaded=False)  # ¡threaded=False es crucial!
+    port = int(os.environ.get("PORT", 10000))
+    app.run(host='0.0.0.0', port=port, threaded=False)
