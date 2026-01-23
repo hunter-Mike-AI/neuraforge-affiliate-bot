@@ -1,33 +1,39 @@
 import os
+import random
+import threading
+import time
 from dotenv import load_dotenv
 load_dotenv()
 
 import telebot
 from flask import Flask, request
-
-# Inicializa el bot con tu token
-bot = telebot.TeleBot(os.environ["TELEGRAM_TOKEN"])
-"
-    )
-
-# Configuración de Flask
-app = Flask(__name__)
-
-@app.route('/telegram-webhook', methods=['POST'])
-def telegram_webhook():
-    json_str = request.get_data().decode('UTF-8')
-    update = telebot.types.Update.de_json(json_str)
-    bot.process_new_updates([update])
-    return 'OK', 200
+import google.generativeai as genai  # ✅ CORREGIDO
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
-GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
+GEMINI_API_KEY = os.environ['GEMINI_API_KEY']  # ✅ CORREGIDO
 HOTMART_SECRET = os.environ.get('HOTMART_SECRET', '')
 
-genai.configure(api_key=GEMINI_API_KEY)
-bot = telebot.TeleBot(TELEGRAM_TOKEN)  # ✅ ESTA LÍNEA DEBE IR ANTES DE USAR 'bot'
+# Definir PRODUCTOS (faltaba en tu código)
+PRODUCTOS = {
+    'ia': {
+        'nombre': 'Curso de IA para Afiliados',
+        'link': 'https://go.hotmart.com/TU_LINK_IA'
+    },
+    'resina': {
+        'nombre': 'Curso de Resina Epóxica',
+        'link': 'https://go.hotmart.com/TU_LINK_RESINA'
+    },
+    'velas': {
+        'nombre': 'Curso de Velas Artesanales',
+        'link': 'https://go.hotmart.com/TU_LINK_VELAS'
+    }
+}
+
+genai.configure(api_key=GEMINI_API_KEY)  # ✅ AHORA SÍ FUNCIONARÁ
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
 app = Flask(__name__)
+
 # Lista de destinos para difusión (canales/grupos)
 DESTINOS_DIFUSION = [
     -1001234567890,  # Reemplaza con tu canal/grupo real
@@ -36,6 +42,12 @@ DESTINOS_DIFUSION = [
 
 # Usuarios interesados pero sin compra (retargeting)
 USUARIOS_INTERESADOS = {}
+
+def verificar_links():  # ✅ FUNCIÓN AÑADIDA
+    """Verifica que todos los links de productos estén configurados"""
+    for key, producto in PRODUCTOS.items():
+        if 'TU_LINK' in producto['link']:
+            print(f"⚠️ ADVERTENCIA: El link para '{producto['nombre']}' no ha sido configurado")
 
 def generar_mensaje_promocional():
     prompt = (
@@ -79,7 +91,16 @@ def iniciar_retargeting():
             del USUARIOS_INTERESADOS[usuario_id]
     threading.Timer(3600, iniciar_retargeting).start()  # revisa cada hora
 
-# 🔄 MODIFICACIÓN EN agente_ventas PARA RETARGETING
+@app.route('/telegram-webhook', methods=['POST'])
+def webhook():
+    if request.headers.get('content-type') == 'application/json':
+        json_string = request.get_data().decode('utf-8')
+        update = telebot.types.Update.de_json(json_string)
+        bot.process_new_updates([update])
+        return 'OK', 200
+    else:
+        return 'Unsupported Media Type', 415
+
 @bot.message_handler(func=lambda message: True)
 def agente_ventas(message):
     try:
