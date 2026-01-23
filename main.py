@@ -2,7 +2,16 @@
 import threading
 import time
 import random
+load_dotenv()
 
+TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
+ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
+GEMINI_API_KEY = os.environ['GEMINI_API_KEY']
+HOTMART_SECRET = os.environ.get('HOTMART_SECRET', '')
+
+genai.configure(api_key=GEMINI_API_KEY)
+bot = telebot.TeleBot(TELEGRAM_TOKEN)  # ✅ ESTA LÍNEA DEBE IR ANTES DE USAR 'bot'
+app = Flask(__name__)
 # Lista de destinos para difusión (canales/grupos)
 DESTINOS_DIFUSION = [
     -1001234567890,  # Reemplaza con tu canal/grupo real
