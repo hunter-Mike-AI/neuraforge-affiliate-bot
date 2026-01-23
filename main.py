@@ -23,7 +23,7 @@ PRODUCTO = {
     'nombre': 'Curso de Resina Epóxica',
     'precio': 97,  # Precio del curso (ajustar si es diferente)
     'comision': 48.5,  # Tu comisión (50%)
-    'link': 'https://bit.ly/3NMYgvz',  # Tu link de afiliado
+    'link': 'https://bit.ly/4a8qXf8',  # Tu link de afiliado
     'bonus': '🔥 BONUS: Kit de herramientas profesionales + Plantillas de Instagram',
     'testimonios': [
         "María facturó $800 en su primera semana con resina",

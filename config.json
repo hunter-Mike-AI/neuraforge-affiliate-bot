@@ -1,0 +1,27 @@
+{
+  "TELEGRAM": {
+    "TOKEN": "TU_TELEGRAM_TOKEN",
+    "ADMIN_ID": 8362361029,
+    "WEBHOOK_URL": "https://neuraforge-affiliate-bot.onrender.com/telegram-webhook"
+  },
+  "HOTMART": {
+    "SECRET": "TU_HOTMART_SECRET",
+    "WEBHOOK_URL": "https://neuraforge-affiliate-bot.onrender.com/hotmart-webhook",
+    "PRODUCT_ID": "ID_DEL_PRODUCTO",
+    "COMMISSION": 48.5
+  },
+  "BOT": {
+    "NAME": "NeuraForgea Bot",
+    "PRODUCT": "Curso de Resina Epóxica",
+    "AFFILIATE_LINK": "http://bit.ly/3LsKPAo",
+    "DISCOUNT_CODE": "700FF",
+    "PRICE_ORIGINAL": 2073.04,
+    "PRICE_DISCOUNT": 573.74
+  },
+  "MODULES": {
+    "SEND_NOTIFICATIONS": true,
+    "AUTO_REMINDERS": true,
+    "BACKUP_ENABLED": true,
+    "LOG_LEVEL": "INFO"
+  }
+}
