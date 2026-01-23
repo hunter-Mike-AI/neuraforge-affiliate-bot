@@ -1,9 +1,13 @@
-# 🔁 DIFUSIÓN AUTOMÁTICA Y RETARimport os
+import os
 from dotenv import load_dotenv
 load_dotenv()
+
 import telebot
 from flask import Flask, request
-import google.generativeai as genai
+# Si estás usando Gemini, actualiza esta línea:
+# import google.generativeai as genai
+# por esta:
+import google.genai as genai
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
