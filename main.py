@@ -1,9 +1,10 @@
-# 🔁 DIFUSIÓN AUTOMÁTICA Y RETARGETING
-import threading
-import time
-import random
+# 🔁 DIFUSIÓN AUTOMÁTICA Y RETARimport os
 from dotenv import load_dotenv
 load_dotenv()
+
+import telebot
+from flask import Flask, request
+import google.generativeai as genai
 
 TELEGRAM_TOKEN = os.environ['TELEGRAM_TOKEN']
 ADMIN_CHAT_ID = os.environ['ADMIN_CHAT_ID']
