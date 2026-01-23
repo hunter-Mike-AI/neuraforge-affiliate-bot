@@ -8,6 +8,20 @@ from flask import Flask, request
 # Inicializa el bot con tu token
 bot = telebot.TeleBot(os.environ["TELEGRAM_TOKEN"])
 
+@bot.message_handler(commands=['start'])
+def handle_start(message):
+    bot.send_message(
+        message.chat.id,
+        "👋 ¡Bienvenido a NeuraForgeAI! ¿Listo para facturar?\nEscribe /curso para ver el curso recomendado."
+    )
+
+@bot.message_handler(commands=['curso'])
+def handle_curso(message):
+    bot.send_message(
+        message.chat.id,
+        "🔥 Este curso de resina ya ayudó a cientos de personas a emprender desde casa.\n💰 Empieza hoy mismo: http://bit.ly/3LsKPAo"
+    )
+
 # Aquí va tu handler de /start
 @bot.message_handler(commands=['start'])
 def handle_start(message):
