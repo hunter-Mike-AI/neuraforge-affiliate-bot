@@ -1,15 +1,16 @@
 #!/usr/bin/env python3
 """
 NEURAFORGEA BOT - SISTEMA DE VENTAS INTELIGENTE
-Versión estable para Render.com
+Versión corregida para Termux y Render
 """
 
 import os
 import sys
+import json
 import logging
 from flask import Flask, request, jsonify
 import telebot
-import json
+from telebot import types
 
 # ================= CONFIGURACIÓN =================
 logging.basicConfig(
@@ -18,177 +19,116 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Inicializar Flask
-app = Flask(__name__)
-
 # Cargar configuración
+CONFIG = {}
 try:
     with open('config.json', 'r') as f:
         CONFIG = json.load(f)
-except:
-    CONFIG = {}
-    logger.warning("⚠️ No se encontró config.json, usando valores por defecto")
+except FileNotFoundError:
+    logger.warning("⚠️ Creando config.json básico...")
+    CONFIG = {
+        "TELEGRAM_TOKEN": "",
+        "ADMIN_ID": 8362361029,
+        "AFFILIATE_LINK": "https://bit.ly/4a8qXf8"
+    }
+    with open('config.json', 'w') as f:
+        json.dump(CONFIG, f, indent=2)
 
 # Token de Telegram
-TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or CONFIG.get('TELEGRAM_TOKEN')
+TELEGRAM_TOKEN = os.getenv('TELEGRAM_TOKEN') or CONFIG.get('TELEGRAM_TOKEN', '')
+
 if not TELEGRAM_TOKEN:
     logger.error("❌ ERROR: No se encontró TELEGRAM_TOKEN")
-    logger.error("   Configura en Render: Environment -> TELEGRAM_TOKEN")
-    # NO salimos - dejamos que el servidor corra pero sin bot
-    bot = None
-else:
-    bot = telebot.TeleBot(TELEGRAM_TOKEN)
-    logger.info("✅ Bot de Telegram inicializado")
+    logger.error("📋 Solución:")
+    logger.error("   1. Edita config.json: nano config.json")
+    logger.error("   2. Agrega tu token de @BotFather")
+    logger.error("   3. Guarda y reinicia el bot")
+    sys.exit(1)
+
+# Inicializar bot
+bot = telebot.TeleBot(TELEGRAM_TOKEN)
+logger.info(f"✅ Bot inicializado: @{bot.get_me().username}")
+
+# Inicializar Flask
+app = Flask(__name__)
 
 # ================= RUTAS WEB =================
 @app.route('/')
 def home():
-    return """
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <title>🚀 NEURAFORGEA BOT</title>
-        <meta charset="utf-8">
-        <style>
-            body { font-family: Arial; text-align: center; padding: 50px; }
-            h1 { color: #2c3e50; }
-            .status { color: green; font-weight: bold; }
-        </style>
-    </head>
-    <body>
-        <h1>🚀 NEURAFORGEA BOT</h1>
-        <h2>SISTEMA DE VENTAS INTELIGENTE</h2>
-        <hr>
-        <p><strong>Producto:</strong> Curso de Resina Epóxica</p>
-        <p><strong>Comisión:</strong> $48.5 por venta</p>
-        <p><strong>Link:</strong> <a href="http://bit.ly/3LsKPAo">http://bit.ly/3LsKPAo</a></p>
-        <p><strong>Estado:</strong> <span class="status">✅ EN LÍNEA</span></p>
-        <hr>
-        <p>Bot de Telegram para afiliados Hotmart</p>
-        <p>Admin ID: 8362361029</p>
-    </body>
-    </html>
-    """
-
-@app.route('/health')
-def health():
-    """Endpoint para verificar salud del servicio (Render lo usa)"""
-    return jsonify({
-        "status": "healthy",
-        "service": "NeuraForgea Affiliate Bot",
-        "timestamp": os.datetime.now().isoformat()
-    })
+    return "🚀 NEURAFORGEA BOT - Sistema de Afiliados"
 
 @app.route('/telegram-webhook', methods=['POST'])
 def telegram_webhook():
-    """Webhook para Telegram"""
-    if bot is None:
-        return "Bot no configurado", 500
-    
     try:
         json_data = request.get_json()
         update = telebot.types.Update.de_json(json_data)
         bot.process_new_updates([update])
         return 'ok', 200
     except Exception as e:
-        logger.error(f"Error en webhook de Telegram: {e}")
-        return 'error', 500
-
-@app.route('/hotmart-webhook', methods=['POST'])
-def hotmart_webhook():
-    """Webhook para Hotmart"""
-    try:
-        data = request.get_json()
-        logger.info(f"📦 Webhook de Hotmart recibido: {data}")
-        
-        # Aquí procesas la venta
-        # Por ahora solo logueamos
-        return 'ok', 200
-    except Exception as e:
-        logger.error(f"Error en webhook de Hotmart: {e}")
+        logger.error(f"Error en webhook: {e}")
         return 'error', 500
 
 # ================= HANDLERS DEL BOT =================
-if bot:
-    @bot.message_handler(commands=['start', 'help'])
-    def send_welcome(message):
-        try:
-            welcome_text = """
-            ¡BIENVENIDO A NEURAFORGEA! 🎉
-            
-            Especialistas en el CURSO DE RESINA EPÓXICA
-            
-            GANA $48.5 POR CADA VENTA
-            
-            🔗 Enlace de afiliado: http://bit.ly/3LsKPAo
-            
-            Comandos disponibles:
-            /start - Este mensaje
-            /link - Obtener link de afiliado
-            /info - Ver información del producto
-            
-            ¡Comparte el enlace y gana comisiones!
-            """
-            bot.reply_to(message, welcome_text)
-            logger.info(f"✅ /start respondido a {message.chat.id}")
-        except Exception as e:
-            logger.error(f"Error en /start: {e}")
+@bot.message_handler(commands=['start', 'help'])
+def send_welcome(message):
+    welcome_text = """
+*¡BIENVENIDO A NEURAFORGEA\!* 🎉
+*Especialistas en el CURSO DE RESINA EPÓXICA*
 
-    @bot.message_handler(commands=['link'])
-    def send_link(message):
-        try:
-            bot.reply_to(message, "🔗 Enlace de afiliado: https://bit.ly/4a8qXf8")
-        except Exception as e:
-            logger.error(f"Error en /link: {e}")
+*GANA \\$48.5 POR CADA VENTA*
 
-# ================= INICIO SEGURO =================
-def configure_webhook():
-    """Configurar webhook solo si estamos en producción"""
-    if not bot:
-        return
+🔗 *Enlace de afiliado:* [https://bit.ly/4a8qXf8](https://bit.ly/4a8qXf8)
+
+*Comandos disponibles:*
+/start - Este mensaje
+/link - Obtener link de afiliado
+/info - Ver información del producto
+
+_¡Comparte el enlace y gana comisiones\!_
+"""
+    bot.reply_to(message, welcome_text, parse_mode='MarkdownV2')
+
+@bot.message_handler(commands=['link'])
+def send_link(message):
+    bot.reply_to(message, "🔗 *Enlace de afiliado:* [https://bit.ly/4a8qXf8](https://bit.ly/4a8qXf8)", 
+                parse_mode='MarkdownV2')
+
+@bot.message_handler(commands=['info'])
+def send_info(message):
+    info_text = """
+*📦 CURSO DE RESINA EPÓXICA*
+
+*💰 Precio:* \\$97 USD
+*💵 Tu comisión:* \\$48.5 por venta
+*📚 Módulos:* 15
+*🎓 Certificado:* Sí
+*🕒 Acceso:* De por vida
+
+*🎁 BONOS INCLUIDOS:*
+• Plantillas para Instagram
+• Guía de ventas
+• Comunidad privada
+• Soporte 24/7
+
+🔗 [Ver curso completo](https://bit.ly/4a8qXf8)
+"""
+    bot.reply_to(message, info_text, parse_mode='MarkdownV2')
+
+# ================= INICIO =================
+if __name__ == '__main__':
+    logger.info("🚀 Iniciando NEURAFORGEA BOT")
+    logger.info(f"🤖 Bot: @{bot.get_me().username}")
     
-    try:
-        # En Render, esta variable existe
-        render_external_url = os.getenv('RENDER_EXTERNAL_URL')
-        
-        if render_external_url:
-            webhook_url = f"{render_external_url}/telegram-webhook"
+    # Configurar webhook solo si está en Render
+    if 'RENDER' in os.environ:
+        render_url = os.getenv('RENDER_EXTERNAL_URL')
+        if render_url:
+            webhook_url = f"{render_url}/telegram-webhook"
             bot.remove_webhook()
             bot.set_webhook(url=webhook_url)
             logger.info(f"✅ Webhook configurado: {webhook_url}")
-            return True
-        else:
-            logger.warning("⚠️ No se encontró RENDER_EXTERNAL_URL")
-            logger.warning("   Ejecutando en modo desarrollo sin webhook")
-            bot.remove_webhook()
-            return False
-    except Exception as e:
-        logger.error(f"❌ Error configurando webhook: {e}")
-        return False
-
-if __name__ == '__main__':
-    logger.info("=" * 50)
-    logger.info("🚀 INICIANDO NEURAFORGEA BOT")
-    logger.info("=" * 50)
     
-    # Configurar webhook si hay bot
-    webhook_configured = False
-    if bot:
-        webhook_configured = configure_webhook()
-    
-    # Obtener puerto (Render asigna uno automático)
+    # Iniciar Flask
     port = int(os.getenv('PORT', 10000))
-    
-    # Información del sistema
-    logger.info(f"🔧 Puerto: {port}")
-    logger.info(f"🔧 Webhook: {'✅ Configurado' if webhook_configured else '❌ No configurado'}")
-    logger.info(f"🔧 Bot: {'✅ Activo' if bot else '❌ Inactivo'}")
-    logger.info(f"🔧 Debug: {'✅ ON' if os.getenv('FLASK_DEBUG') else '❌ OFF'}")
-    
-    # INICIAR SERVIDOR FLASK (ESTA ES LA ÚLTIMA LÍNEA)
-    # No poner NADA después de app.run()
-    logger.info(f"🌐 Servidor iniciando en http://0.0.0.0:{port}")
-    logger.info("=" * 50)
-    
-    # 🚨 IMPORTANTE: debug=False en producción
+    logger.info(f"🌐 Servidor en puerto: {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
